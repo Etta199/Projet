@@ -157,3 +157,20 @@ ui <- dashboardPage(
   
   
 )
+
+
+server <- function(input, output,session) {
+  
+############partieWissal
+  
+  
+  
+  
+  
+  
+  
+############partieChaimae
+  
+  
+  
+}
