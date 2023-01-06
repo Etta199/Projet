@@ -170,7 +170,249 @@ server <- function(input, output,session) {
   
   
 ############partieChaimae
+  # Fonctions qui gére les classifications
   
+  ################ random forest ################
+  random_frst <- function(arg=NULL){
+    
+    #make this example reproducible
+    set.seed(1)
+    
+    #Use 80% of dataset as training set and remaining 30% as testing set
+    sample <- sample(c(TRUE, FALSE), nrow(data$table), replace=TRUE, prob=c(0.8,0.2))
+    ###traitement donnees manquante pour rdf
+    train <- data$table[sample, ]
+    test <- data$table[!sample, ]
+    df.rf=randomForest(as.formula(paste(input$variabletarget," ~ .")),train,importance=TRUE)
+    
+    
+    
+    
+    
+    predict_rdf <- predict(df.rf,test,type='class')
+    
+    predict_rdf=round(predict_rdf,0)
+    
+    
+    table = table(test[, input$variabletarget], predict_rdf)
+    
+    
+    Precision = table[1, 1] / sum(table[,1])
+    
+    Recall = table[1, 1] / sum(table[1,])
+    Specificity = table[2, 2] / sum(table[2,])
+    
+    f1 = 2 * Precision * Recall / (Precision + Recall)
+    
+    missing_classerr <- mean(predict_rdf != test[, input$variabletarget])
+    Accuracy = 1 - missing_classerr
+    
+    if (is.null(arg)){
+      
+      tablo <- data.frame(table(test$target, predict_rdf))
+      colnames(tablo)=c("Prediction","REEL","N")
+      ggplot(data = tablo , mapping = aes(x = Prediction , y =REEL )) +
+        geom_tile(aes(fill = N), colour = "white") +
+        geom_text(aes(label = sprintf("%1.0f", N)), vjust = 1) +
+        scale_fill_gradient(low = "blue", high = "red") +
+        theme_bw() + theme(legend.position = "none")
+    }
+    
+    else if (arg==1){data.frame(Accuracy, Precision, Recall, f1, Specificity)}
+    
+    else if (arg==2) { 
+      # ROC-AUC Curve
+      ROCPred <- prediction(predict_rdf, test[, input$variabletarget])
+      ROCPer <- performance(ROCPred, measure = "tpr",x.measure = "fpr")
+      
+      auc <- performance(ROCPred, measure = "auc")
+      auc <- auc@y.values[[1]]
+      auc
+      
+      # Plotting curve
+      plot(ROCPer, colorize = TRUE, 
+           print.cutoffs.at = seq(0.1, by = 0.1), 
+           main = "ROC CURVE")
+      abline(a = 0, b = 1)
+      
+      auc <- round(auc, 4)
+      legend(.6, .4, auc, title = "AUC", cex = 1)
+      
+    }
+    
+    else {
+      {
+        # Features Importance using the package vip
+        
+        fi_lr <- varImpPlot(df.rf)
+        print(fi_lr)
+        p1 <- vip(df.rf) + ggtitle("random forest")
+        # Display plots in a grid
+        grid.arrange(p1)
+      }
+    }
+  }
+  
+  output$lr <- renderPlot({
+    random_frst(arg = NULL)
+  })
+  output$lr2 <- renderTable({
+    random_frst(arg = 1)
+  })
+  output$lr3 <- renderPlot({
+    random_frst(arg=2)
+  })
+  output$lr4 <- renderPlot({
+    random_frst(arg=3)
+  })
+  
+  ################## Decision Tree #####################"""
+  
+  decisionTree <- function(arg=NULL){
+    
+    #make this example reproducible
+    set.seed(1)
+    
+    #Use 70% of dataset as training set and remaining 30% as testing set
+    sample <- sample(c(TRUE, FALSE), nrow(data$table), replace=TRUE, prob=c(0.7,0.3))
+    train <- data$table[sample, ]
+    test <- data$table[!sample, ]
+    
+    # Decision Tree Model
+    dt_model = rpart(as.formula(paste(input$variabletarget," ~ .")), data = train,
+                     method = "class", minsplit = 10, minbucket = 3)
+    
+    Predict_dt = predict(dt_model, newdata = test, type = "class")
+    
+    table = table(test[, input$variabletarget], Predict_dt)
+    
+    # Deduce the evaluation metrics
+    
+    # precision (TP / (TP + FP))
+    Precision = table[1, 1] / sum(table[,1])
+    # recall (TP / (TP + FN))
+    Recall = table[1, 1] / sum(table[1,])
+    # specificity (TN / (TN + FP)) --> NB: increasing FP increases specificity
+    Specificity = table[2, 2] / sum(table[2,])
+    
+    missing_classerr <- mean(Predict_dt != test[, input$variabletarget])
+    Accuracy = 1 - missing_classerr
+    
+    
+    f1 = 2 * Precision * Recall / (Precision + Recall)
+    
+    if (is.null(arg)){
+      tabla <- data.frame(table(test[, input$variabletarget],  Predict_dt ))
+      colnames(tabla)=c("Prediction","REEL","N")
+      ggplot(data = tabla , mapping = aes(x = Prediction , y = REEL )) +
+        geom_tile(aes(fill = N), colour = "white") +
+        geom_text(aes(label = sprintf("%1.0f", N)), vjust = 1) +
+        scale_fill_gradient(low = "blue", high = "red") +
+        theme_bw() + theme(legend.position = "none")
+    } else if(arg==1){
+      ### print classification report
+      data.frame(Accuracy,Precision, Recall, f1, Specificity)
+    } else if(arg==2) {
+      
+      # ROC-AUC Curve
+      library(pROC)
+      sim_roc=roc(test[, input$variabletarget], factor(Predict_dt, ordered=TRUE))#AUC SCORE
+      
+      
+      ggroc(sim_roc, legacy.axes = TRUE) +
+        labs(x = 'False-positive rate', y = 'True-positive rate', title = 'Simulated ROC curve') +
+        annotate('text', x = .5, y = .5, label = paste0('AUC: ',round(auc(sim_roc), digits = 2)))
+      
+    }
+    
+  }
+  
+  output$dt <- renderPlot({
+    decisionTree(arg = NULL)
+  })
+  output$dt2 <- renderTable({
+    decisionTree(arg = 1)
+  })
+  output$dt3 <- renderPlot({
+    decisionTree(arg=2)
+  })
+  output$dt4 <- renderPlot({
+    decisionTree(arg=3)
+  })
+  
+  
+  ##################### Naive Bayes ##############################
+  
+  naive_bayes <- function(arg=NULL){
+    
+    #make this example reproducible
+    set.seed(1)
+    
+    #Use 70% of dataset as training set and remaining 30% as testing set
+    sample <- sample(c(TRUE, FALSE), nrow(data$table), replace=TRUE, prob=c(0.7,0.3))
+    train <- data$table[sample, ]
+    test <- data$table[!sample, ]
+    
+    # Create Model
+    model_nb = naiveBayes(as.formula(paste(input$variabletarget," ~ .")), data = train, type = 'C-classification' )
+    
+    #Model evaluation
+    
+    Predict_nb = predict(model_nb, newdata = test, type="class")
+    table = table(test[, input$variabletarget], Predict_nb)
+    
+    # Deduce the evaluation metrics
+    
+    # precision (TP / (TP + FP))
+    Precision = table[1, 1] / sum(table[,1])
+    # recall (TP / (TP + FN))
+    Recall = table[1, 1] / sum(table[1,])
+    # specificity (TN / (TN + FP)) --> NB: increasing FP increases specificity
+    Specificity = table[2, 2] / sum(table[2,])
+    
+    missing_classerr <- mean(Predict_nb != test[, input$variabletarget])
+    Accuracy = 1 - missing_classerr
+    
+    
+    f1 = 2 * Precision * Recall / (Precision + Recall)
+    
+    if (is.null(arg)){
+      # Tibble for train data
+      tablo <- data.frame(table(test[, input$variabletarget], Predict_nb))
+      colnames(tablo)=c("Prediction","REEL","N")
+      ggplot(data = tablo , mapping = aes(x = Prediction , y =REEL )) +
+        geom_tile(aes(fill = N), colour = "white") +
+        geom_text(aes(label = sprintf("%1.0f", N)), vjust = 1) +
+        scale_fill_gradient(low = "blue", high = "red") +
+        theme_bw() + theme(legend.position = "none")
+      
+      # Tibble for test data
+      #tab_fin_test=as_tibble(C_mat_test$table)
+      #colnames(tab_fin_test)=c("Target","Prediction","N")
+      #plot_confusion_matrix(tab_fin_test)
+    } else if(arg==1){
+      ### print classification report
+      data.frame(Accuracy,Precision, Recall, f1, Specificity)
+    } else {
+      ### plot ROC, AUC CURVE
+      library(pROC)
+      sim_roc=roc(test[, input$variabletarget], factor(Predict_nb, ordered=TRUE))#AUC SCORE
+      
+      ggroc(sim_roc, legacy.axes = TRUE) +
+        labs(x = 'False-positive rate', y = 'True-positive rate', title = 'Simulated ROC curve') +
+        annotate('text', x = .5, y = .5, label = paste0('AUC: ',round(auc(sim_roc), digits = 2)))
+    }
+  }
+  
+  output$nb <- renderPlot({
+    naive_bayes(arg = NULL)
+  })
+  output$nb2 <- renderTable({
+    naive_bayes(arg = 1)
+  })
+  output$nb3 <- renderPlot({
+    naive_bayes(arg=2)
+  }) 
   
   
 }
